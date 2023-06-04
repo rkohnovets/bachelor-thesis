@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.active {
+  background-color: rgb(16,16,16);
+  color: white;
+}
+
+.menu.active {
+  background-color: rgb(240,240,240);
+  color: black;
+}

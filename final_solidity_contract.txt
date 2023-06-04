@@ -1,0 +1,280 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity 0.8.11;
+
+contract DApp {
+    User[] users;
+    uint usernameMaxLength = 50;
+    mapping(address => string) usernames;
+    mapping(string => uint) usersIndexes;
+
+    Post[] allPosts;
+    uint postMaxLength = 500;
+
+    Comment[] allComments;
+    uint commentMaxLength = 100;
+
+    constructor() {
+        users.push();
+        uint index = 0;
+        users[index].index = index;
+        users[index].username = "admin";
+        users[index].userAddress = msg.sender;
+        
+        usernames[msg.sender] = "admin";
+        usersIndexes["admin"] = index;
+    }
+
+    function register(string memory username) public {
+        require(usernameIsFree(username));
+        require(usernameIsCorrect(username));
+        require(!callerRegistered());
+
+        users.push();
+        uint index = users.length - 1;
+        users[index].index = index;
+        users[index].username = username;
+        users[index].userAddress = msg.sender;
+        
+        usernames[msg.sender] = username;
+        usersIndexes[username] = index;
+    }
+
+    function getCallerUser() public view returns(User memory) {
+        require(callerRegistered());
+
+        string memory username = usernames[msg.sender];
+        uint userIndex = usersIndexes[username];
+
+        return users[userIndex];
+    }
+
+    function getUserByIndex(uint userIndex) public view returns(User memory) {
+        require(userIndex < users.length);
+        return users[userIndex];
+    }
+
+    function callerRegistered() public view returns(bool) {
+        return utfLength(usernames[msg.sender]) != 0;
+    }
+
+    function usernameIsFree(string memory username) public view returns(bool) {
+        return usersIndexes[username] == 0 && !compare(username,"admin");
+    }
+
+    function usernameIsCorrect(string memory username) public view returns(bool) {
+        uint len = utfLength(username);
+        if(len == 0 || len > usernameMaxLength) 
+            return false;
+        
+        string[] memory chars = utfToChars(username);
+
+        for(uint i = 0; i < chars.length; i++) {
+            if(compare(chars[i]," ") || compare(chars[i],"@"))
+                return false;
+        }
+        return true;
+    }
+
+    function getUsernameByIndex(uint userIndex) public view returns(string memory) {
+        require(userIndex < users.length);
+        return users[userIndex].username;
+    }
+
+    function createPost(string memory text) public {
+        require(callerRegistered());
+        require(utfLength(text) <= postMaxLength);
+
+        string memory username = usernames[msg.sender];
+        uint userIndex = usersIndexes[username];
+
+        allPosts.push();
+        uint postIndex = allPosts.length - 1;
+        allPosts[postIndex].index = postIndex;
+        allPosts[postIndex].creatorIndex = userIndex;
+        allPosts[postIndex].text = text;
+
+        users[userIndex].postsIndxs.push(postIndex);
+    }
+    //TODO получение всех постов
+    function getAllPosts() public view returns(Post[] memory) {
+        return allPosts;
+    }
+    //TODO подписка на пользователя
+    function subscribe(uint userIndex) public {
+        require(callerRegistered());
+        require(users.length > userIndex);
+
+        string memory username = usernames[msg.sender];
+        uint thisUserIndex = usersIndexes[username];
+
+        require(thisUserIndex != userIndex);
+
+        uint[] memory thisUserSubs = users[thisUserIndex].subscriptionsIndxs; 
+        for(uint i = 0; i < thisUserSubs.length; i++) {
+            require(thisUserSubs[i] != userIndex);
+        }
+        users[thisUserIndex].subscriptionsIndxs.push(userIndex);
+    }
+    //TODO отписка
+    function unsubscribe(uint userIndex) public { 
+        require(callerRegistered()); 
+        require(users.length > userIndex);
+
+        string memory username = usernames[msg.sender]; 
+        uint thisUserIndex = usersIndexes[username]; 
+        require(thisUserIndex != userIndex); 
+
+        uint[] memory thisUserSubs = users[thisUserIndex].subscriptionsIndxs;
+        uint index = 0;
+        bool found = false;
+        for(uint i = 0; i < thisUserSubs.length; i++)
+            if(thisUserSubs[i] == userIndex) {
+                index = i;
+                found = true;
+            }
+
+        require(found);
+        uint lastValue = users[thisUserIndex].subscriptionsIndxs[thisUserSubs.length-1];
+        users[thisUserIndex].subscriptionsIndxs[index] = lastValue;
+        users[thisUserIndex].subscriptionsIndxs.pop();
+    }
+    //поиск пользователя по нику (нужен полный ник, а не часть)
+    function findUserByUsername(string memory username) public view returns(User memory) {
+        require(usersIndexes[username] != 0 || compare(username, "admin"));
+        return users[usersIndexes[username]];
+    }
+    //поиск пользователя по адресу
+    function findUserByAddress(address userAddress) public view returns(User memory) {
+        string memory username = usernames[userAddress];
+        require(utfLength(username) != 0);
+        require(usersIndexes[username] != 0 || compare(username, "admin"));
+        return users[usersIndexes[username]];
+    }
+    //получение постов пользователя
+    function getUserPosts(uint userIndex) public view returns(Post[] memory){
+        require(users.length > userIndex);
+
+        uint[] memory indexes = users[userIndex].postsIndxs;
+        uint length = indexes.length;
+        Post[] memory result = new Post[](length);
+        for(uint i = 0; i < length; i++) {
+            result[i] = allPosts[indexes[i]];
+        }
+        return result;
+    }
+    //комментирование
+    function comment(uint postIndex, string memory text) public {
+        require(callerRegistered());
+        require(utfLength(text) <= commentMaxLength);
+        require(allPosts.length > postIndex);
+
+        string memory username = usernames[msg.sender];
+        uint thisUserIndex = usersIndexes[username];
+
+        allComments.push();
+        uint index = allComments.length - 1;
+        allComments[index].creatorIndex = thisUserIndex;
+        allComments[index].text = text;
+
+        allPosts[postIndex].commentsIndxs.push(index);
+    }
+    //получение комментариев к посту
+    function getCommentsOnPost(uint postIndex) public view returns(Comment[] memory) {
+        require(allPosts.length > postIndex);
+
+        uint[] memory indexes = allPosts[postIndex].commentsIndxs;
+        uint length = indexes.length;
+        Comment[] memory result = new Comment[](length);
+        for(uint i = 0; i < length; i++) {
+            result[i] = allComments[indexes[i]];
+        }
+        return result;
+    }
+    //сравнение строк
+    function compare(string memory s1, string memory s2) public pure returns (bool) {
+        return keccak256(abi.encodePacked(s1)) == keccak256(abi.encodePacked(s2));
+    }
+    //складывание строк
+    function concatenate(string memory s1, string memory s2) public pure returns (string memory) {
+        return string(abi.encodePacked(s1, s2));
+    }
+    //длина строки в символах
+    function utfLength(string memory str) public pure returns (uint) {
+        uint i = 0; 
+        uint len = 0;
+        bytes memory string_rep = bytes(str);
+
+        while (i < string_rep.length)
+        {
+            if (string_rep[i]>>7==0)
+                i+=1;
+            else if (string_rep[i]>>5==bytes1(uint8(0x6)))
+                i+=2;
+            else if (string_rep[i]>>4==bytes1(uint8(0xE)))
+                i+=3;
+            else if (string_rep[i]>>3==bytes1(uint8(0x1E)))
+                i+=4;
+            else
+                //For safety
+                i+=1;
+
+            len++;
+        }
+        return len;
+    }
+    //разделение строки на символы(у string нет индексирования)
+    function utfToChars(string memory str) public pure returns (string[] memory) {
+        uint i = 0; 
+        uint charIndex = 0;
+        bytes memory string_rep = bytes(str);
+
+        uint len = utfLength(str);
+
+        string[] memory chars = new string[](len);
+
+        while (i < string_rep.length)
+        {
+            uint charLength;
+            if (string_rep[i]>>7==0)
+                charLength = 1;
+            else if (string_rep[i]>>5 == bytes1(uint8(0x6)))
+                charLength = 2;
+            else if (string_rep[i]>>4 == bytes1(uint8(0xE)))
+                charLength = 3;
+            else if (string_rep[i]>>3 == bytes1(uint8(0x1E)))
+                charLength = 4;
+            else
+                //for safety
+                charLength = 1;
+            
+            bytes memory charInBytes = new bytes(charLength);
+            for(uint j = 0; j < charLength; j++) {
+                charInBytes[j] = string_rep[i+j];
+            }
+            chars[charIndex] = string(charInBytes);
+            charIndex++;
+            i+=charLength;
+        }
+        return chars;
+    }
+}
+
+struct User {
+    uint index;
+    string username;
+    address userAddress;
+    uint[] postsIndxs;
+    uint[] subscriptionsIndxs;
+}
+
+struct Post {
+    uint index;
+    uint creatorIndex;
+    string text;
+    uint[] commentsIndxs;
+}
+
+struct Comment {
+    uint creatorIndex;
+    string text;
+}
